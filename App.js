@@ -7,18 +7,38 @@ import {
   ActivityIndicator,
   Image,
   TouchableOpacity,
-  Animated, // Import Animated
+  Animated,
   SafeAreaView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { useState, useRef, useEffect } from 'react'; // Import useRef and useEffect
+import * as ImageManipulator from 'expo-image-manipulator';
+import { Ionicons } from '@expo/vector-icons';
+import { useState, useRef, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import ResultScreen from './screens/ResultScreen'; // Make sure this path is correct
+import ResultScreen from './screens/ResultScreen';
+import EditScreen from './screens/EditScreen';
+import ChatbotScreen from './screens/ChatbotScreen';
 
 const Stack = createStackNavigator();
 
-// A custom animated button component for a consistent look and feel
+function AppNavigator() {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        cardStyle: { backgroundColor: '#000' }
+      }}
+    >
+      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="Edit" component={EditScreen} />
+      <Stack.Screen name="Result" component={ResultScreen} />
+      <Stack.Screen name="Chatbot" component={ChatbotScreen} />
+    </Stack.Navigator>
+  );
+}
+
+// A custom animated button component
 const AnimatedButton = ({ onPress, title, style, textStyle }) => (
   <TouchableOpacity onPress={onPress} style={[styles.button, style]}>
     <Text style={[styles.buttonText, textStyle]}>{title}</Text>
@@ -28,38 +48,27 @@ const AnimatedButton = ({ onPress, title, style, textStyle }) => (
 function HomeScreen({ navigation }) {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState(null);
-
+  
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
-
-  // Runs animations
+  
+  // Animation runner
   const runAnimation = () => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
   };
-
-  // Trigger animation on first load
-  useEffect(() => {
-    runAnimation();
-  }, []);
-
-  // Reset and run animation when the view changes
+  
+  useEffect(() => { runAnimation(); }, []);
   useEffect(() => {
     fadeAnim.setValue(0);
     slideAnim.setValue(30);
     runAnimation();
   }, [selectedImageUri]);
+
+  // --- Image Picking and Editing Functions (Now all in HomeScreen) ---
 
   const pickImageFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -67,14 +76,10 @@ function HomeScreen({ navigation }) {
       Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
       return;
     }
-
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false, // Set to false to avoid the cropping issue
-      aspect: [4, 3],
       quality: 1,
     });
-
     if (!result.canceled) {
       setSelectedImageUri(result.assets[0].uri);
     }
@@ -86,17 +91,35 @@ function HomeScreen({ navigation }) {
       Alert.alert('Permission Denied', 'Sorry, we need camera permissions to make this work!');
       return;
     }
-
-    let result = await ImagePicker.launchCameraAsync({
-      allowsEditing: false, // Set to false to avoid the cropping issue
-      aspect: [4, 3],
-      quality: 1,
-    });
-
+    let result = await ImagePicker.launchCameraAsync({ quality: 1 });
     if (!result.canceled) {
       setSelectedImageUri(result.assets[0].uri);
     }
   };
+
+  const handleRotate = async () => {
+    if (!selectedImageUri) return;
+    const manipResult = await ImageManipulator.manipulateAsync(
+      selectedImageUri,
+      [{ rotate: 90 }],
+      { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    setSelectedImageUri(manipResult.uri);
+  };
+
+  const handleFlip = async () => {
+    if (!selectedImageUri) return;
+    const manipResult = await ImageManipulator.manipulateAsync(
+      selectedImageUri,
+      [{ flip: ImageManipulator.FlipType.Horizontal }],
+      { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    setSelectedImageUri(manipResult.uri);
+  };
+  
+
+
+  // --- Backend Submission ---
 
   const sendImageToBackend = async () => {
     if (!selectedImageUri) return;
@@ -109,15 +132,16 @@ function HomeScreen({ navigation }) {
     });
 
     try {
-      const response = await fetch('https://tenia-kurapati-mini-backend.hf.space/predict', {
+      const response = await fetch('https://tenia-kurapati-major-backend.hf.space/predict', {
         method: 'POST',
         body: formData,
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       const responseData = await response.json();
       setIsLoading(false);
-      navigation.navigate('Result', { imageUri: selectedImageUri, predictionData: responseData });
-      setSelectedImageUri(null); // Reset after navigation
+      const imageToNavigate = selectedImageUri;
+      setSelectedImageUri(null); // Reset home screen
+      navigation.navigate('Result', { imageUri: imageToNavigate, predictionData: responseData });
     } catch (error) {
       setIsLoading(false);
       console.error(error);
@@ -140,21 +164,59 @@ function HomeScreen({ navigation }) {
         {!selectedImageUri ? (
           <>
             <Image source={require('./assets/icon.png')} style={styles.logo} />
-            <Text style={styles.title}>Leaf Classifier</Text>
-            <Text style={styles.subtitle}>Identify medicinal plants from a photo.</Text>
+            <Text style={styles.title}>Ayurvedic AI</Text>
+            <Text style={styles.subtitle}>Explore medicinal plants and intelligent remedies.</Text>
+            
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Ionicons name="leaf-outline" size={24} color="#007AFF" />
+                <Text style={styles.cardTitle}>Leaf Classification</Text>
+              </View>
+              <Text style={styles.cardDesc}>Identify plants visually by uploading or taking a photo.</Text>
+              <AnimatedButton title="Take a Picture" onPress={takePictureWithCamera} style={styles.cardButton} />
+              <AnimatedButton
+                title="Pick from Gallery"
+                onPress={pickImageFromGallery}
+                style={[styles.secondaryButton, styles.cardButton]}
+                textStyle={styles.secondaryButtonText}
+              />
+            </View>
 
-            <AnimatedButton title="Take a Picture" onPress={takePictureWithCamera} />
-            <AnimatedButton
-              title="Pick from Gallery"
-              onPress={pickImageFromGallery}
-              style={styles.secondaryButton}
-              textStyle={styles.secondaryButtonText}
-            />
+            <View style={[styles.card, { marginTop: 30 }]}>
+              <View style={styles.cardHeader}>
+                <Ionicons name="medkit-outline" size={24} color="#28A745" />
+                <Text style={styles.cardTitle}>Symptom Checker</Text>
+              </View>
+              <Text style={styles.cardDesc}>Describe your symptoms to get natural medicinal leaf recommendations.</Text>
+              <AnimatedButton
+                title="Get Recommendation"
+                onPress={() => navigation.navigate('Chatbot')}
+                style={[{ backgroundColor: '#28A745' }, styles.cardButton]}
+                textStyle={{ color: '#fff' }}
+              />
+            </View>
           </>
         ) : (
           <>
-            <Text style={styles.title}>Image Preview</Text>
+            <Text style={styles.title}>Edit & Preview</Text>
             <Image source={{ uri: selectedImageUri }} style={styles.previewImage} />
+            
+            {/* --- NEW: In-line Editing Tools --- */}
+            <View style={styles.editToolsContainer}>
+              <TouchableOpacity style={styles.editButton} onPress={() => navigation.navigate('Edit', { imageUri: selectedImageUri })}>
+                <Ionicons name="crop-outline" size={24} color="#333" />
+                <Text style={styles.editButtonText}>Crop</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.editButton} onPress={handleRotate}>
+                <Ionicons name="reload-outline" size={24} color="#333" />
+                <Text style={styles.editButtonText}>Rotate</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.editButton} onPress={handleFlip}>
+                <Ionicons name="repeat-outline" size={24} color="#333" />
+                <Text style={styles.editButtonText}>Flip</Text>
+              </TouchableOpacity>
+            </View>
+
             <AnimatedButton title="Analyze Image" onPress={sendImageToBackend} />
             <AnimatedButton
               title="Choose Another"
@@ -170,27 +232,13 @@ function HomeScreen({ navigation }) {
   );
 }
 
-export default function App() {
-  return (
-    <NavigationContainer>
-      <Stack.Navigator
-        screenOptions={{
-          headerStyle: { backgroundColor: '#f8f9fa' },
-          headerTintColor: '#333',
-          headerTitleStyle: { fontWeight: 'bold' },
-        }}
-      >
-        <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'Home' }} />
-        <Stack.Screen name="Result" component={ResultScreen} options={{ title: 'Analysis Result' }} />
-      </Stack.Navigator>
-    </NavigationContainer>
-  );
-}
 
+
+// --- Styles ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa', // Softer background color
+    backgroundColor: '#f8f9fa',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -214,8 +262,42 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: '#6c757d',
-    marginBottom: 40,
+    marginBottom: 30, // Reduced from 40 since we added cards
     textAlign: 'center',
+  },
+  card: {
+    width: '95%',
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#eee'
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginLeft: 8,
+  },
+  cardDesc: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+    lineHeight: 20,
+  },
+  cardButton: {
+    width: '100%',
+    marginVertical: 6,
   },
   button: {
     width: '90%',
@@ -247,17 +329,63 @@ const styles = StyleSheet.create({
     color: '#007AFF',
   },
   previewImage: {
-    width: 320,
-    height: 320,
-    resizeMode: 'contain',
-    marginBottom: 30,
+    width: '90%',
+    aspectRatio: 1, // Start as a square, will contain the image
+    marginBottom: 20,
     borderRadius: 15,
     borderWidth: 1,
     borderColor: '#e9ecef',
+    resizeMode: 'contain',
+    backgroundColor: '#fff',
   },
   loadingText: {
     marginTop: 10,
     fontSize: 16,
     color: '#333',
   },
+  // NEW STYLES for inline tools and modal
+  editToolsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '90%',
+    marginVertical: 15,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  editButton: {
+    alignItems: 'center',
+  },
+  editButtonText: {
+    marginTop: 5,
+    fontSize: 12,
+    color: '#333',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'black',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: '#1C1C1E',
+  },
+  modalHeaderText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
 });
+
+export default function App() {
+  return (
+    <NavigationContainer>
+      <StatusBar style="light" />
+      <AppNavigator />
+    </NavigationContainer>
+  );
+}
